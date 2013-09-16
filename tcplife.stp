@@ -1,0 +1,220 @@
+#! /usr/bin/env stap
+/*
+ *      Copyright (C) 2013 Yann Rouillard
+ *      This script is free software.  You can redistribute it and/or modify
+ *      it under the terms of the GNU General Public License (GPL);
+ *      either version 2, or (at your option) any later version.
+ *      
+ *      Version 0.1    yann@pleiades.fr.eu.org    2013-09-16
+ *
+ */
+
+/***************************************************************************************
+  Useful functions
+ **************************************************************************************/
+
+/* 
+    These variables are used as an array to store the internal state of the each TCP
+    connection followed.
+    The "struct sock *sk" variable is used as a key of these associatives arrays
+ */
+
+global cnx_tcp_state;      /* TCP Congestion state (Open, Disorder, CWR, Recovery, Loss) */
+global cnx_tcp_cwnd;       /* TCP Congestion window */
+global cnx_slow_start;     /* equal to 1 if slow start was used to increment cwnd */
+global cnx_cwnd_moderated; /* equal to 1 if cwnd was moderated */
+
+
+/***************************************************************************************
+  Useful functions
+ **************************************************************************************/
+
+/* 
+    These variables are used as an array to store the internal state of the each TCP
+    connection followed.
+*/
+function tcp_state:string(state:long)
+{
+	if (state == 0) return ("Open");
+	if (state == 1) return ("Disorder");
+	if (state == 2) return ("CWR");
+	if (state == 3) return ("Recovery");
+	if (state == 4) return ("Loss");
+}
+
+/* 
+    Given a struck sock, return a string containing the source adresse/port and the 
+    destination adress port on the form SRC_IP:SRC_PORT <-> DST_IP:DST_PORT
+*/
+function tcp_connection_info:string(sk:long)
+{
+	return (sprintf("%s:%d <-> %s:%d",
+			ip_ntop(htonl(tcpmib_local_addr(sk))),
+			tcpmib_local_port(sk),
+			ip_ntop(htonl(tcpmib_remote_addr(sk))),
+			tcpmib_remote_port(sk)));
+}
+
+/* 
+    Given a struck sock, print the internal status of the tcp connection
+    (congestion state, sending buffer size...)
+
+    Note: max_sndbuf must retrieved by the sender and passed as an argument, 
+          using the follow line:
+	     max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+          The reason is that this sentence can't be used in a function except
+          in recent versions of systemtap.
+*/
+function display_connection_info(sk:long, max_sndbuf:long)
+{
+	snd_ssthresh = @cast(sk, "tcp_sock")->snd_ssthresh
+	if (snd_ssthresh == 2147483647)
+		snd_ssthresh = 0
+
+	printf ("%s Status: sndbuf:%i/%i, cwnd:%i ssthresh:%i congestion_state:%s\n",
+		tcp_connection_info(sk),
+	        @cast(sk, "sock")->sk_sndbuf,
+		max_sndbuf,
+		@cast(sk, "tcp_sock")->snd_cwnd,
+		snd_ssthresh,
+		tcp_state(@cast(sk, "inet_connection_sock")->icsk_ca_state));
+}
+
+
+/* 
+    Given a struck sock, display an event and the current connection info.
+    If update_state is set to 1, it will also print the state modification
+    and save the new internal state.
+
+    Note: max_sndbuf must retrieved by the sender and passed as an argument, 
+          using the follow line:
+	     max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+          The reason is that this sentence can't be used in a function except
+          in recent versions of systemtap.
+*/
+function display_event(sk:long, event:string, max_sndbuf:long, update_state:long)
+{
+	new_state = @cast(sk, "inet_connection_sock")->icsk_ca_state;
+	printf ("%s Event: %s", tcp_connection_info(sk), event)
+	if (update_state != 0) {
+		printf (", changing state %s -> %s", tcp_state(cnx_tcp_state[sk]), tcp_state(new_state));
+		cnx_tcp_state[sk] = new_state;
+	}
+	printf ("\n");
+	display_connection_info(sk, max_sndbuf);
+}
+
+
+/***************************************************************************************
+  Probe functions
+ **************************************************************************************/
+
+
+/* 
+   Congestion window is usually updated after each ack received, so we trace this
+   function and report any modification of the congestion window.
+*/
+probe kernel.function("tcp_ack").return
+{
+	if (cnx_tcp_cwnd[$sk] != @cast($sk, "tcp_sock")->snd_cwnd) {
+		max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+		if (cnx_tcp_cwnd[$sk] < @cast($sk, "tcp_sock")->snd_cwnd) {
+			event = "Congestion window increase";
+			if (cnx_slow_start[$sk])
+				event = sprintf("%s (Slow start mode)", event);
+			else
+				event = sprintf("%s (Congestion avoidance mode)", event);
+		} else {
+			event = "Congestion window decrease";
+		}
+
+		display_event ($sk, event, max_sndbuf, 0);
+		cnx_tcp_cwnd[$sk] = @cast($sk, "tcp_sock")->snd_cwnd;
+		cnx_slow_start[$sk] = 0;
+	}
+}
+
+/* 
+   We keep track of slow start calls to know if it was used to increase the
+   congestion window
+*/  
+probe kernel.function("tcp_slow_start").return
+{
+	cnx_slow_start[$tp] = 1;
+}
+
+
+	
+probe kernel.function("tcp_enter_frto").return
+{
+	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+	display_event ($sk, "Enabling Forward RTO Recovery algorithm", max_sndbuf, 1);
+}
+
+
+probe kernel.function("tcp_moderate_cwnd")
+{
+	cnx_cwnd_moderated[$tp] = 1;
+}
+
+/* 
+   Most TCP connection congestion state modification occur in the
+   tcp_fastretrans_alert function.
+   So we intercept the return of this function and we guess what happened
+   based on flag and the state modification.
+
+   According to the source code comments, this function is entered:
+     - for each incoming ACK, if state is not "Open"
+     - when arrived ACK is unusual, namely:
+	* SACK
+	* Duplicate ACK.
+	* ECN ECE.
+*/
+probe kernel.function("tcp_fastretrans_alert").return
+{
+	new_state = @cast($sk, "inet_connection_sock")->icsk_ca_state;
+	old_state = cnx_tcp_state[$sk]
+
+	if (new_state == old_state) {
+		next;
+	}
+
+	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+
+	if ($flag & 0x40) {  /* FLAG_ECE */
+		display_event ($sk, "Explicit Congestion Notification received", max_sndbuf, 1);
+		next;
+	}
+
+	if (old_state == 0 && new_state == 1) { /* Open -> Disorder state */
+
+		if ($flag & 0x20)  /* FLAG_DATA_SACKED */
+			event = "Selective ack received";
+		else
+			if (!($flag & 0x33))  /* FLAG_NOT_DUP */
+				event = "Duplicate ack received";
+
+		if (cnx_cwnd_moderated[$sk]) {
+			event = sprintf("%s, congestion window moderated", event);
+			cnx_cwnd_moderated[$sk]	= 0;
+			cnx_tcp_cwnd[$sk] = @cast($sk, "tcp_sock")->snd_cwnd;
+		}
+
+		display_event ($sk, event, max_sndbuf, 1);
+		next;
+	}
+
+	if (new_state == 3) {  /* -> Recovery state */
+		display_event ($sk, "Retransmission timeout", max_sndbuf, 1);
+		next;
+	}
+
+	if (old_state == 3 && new_state == 0) { /* Recovery -> Open state */
+		display_event ($sk, "Full window acknowledged", max_sndbuf, 1);
+		next;
+	}
+
+	display_event($sk, sprintf("Transition unknown (flag:0x%x)", $flag), max_sndbuf, 1);
+}
+
+
