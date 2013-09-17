@@ -21,6 +21,7 @@
 
 global cnx_tcp_state;      /* TCP Congestion state (Open, Disorder, CWR, Recovery, Loss) */
 global cnx_tcp_cwnd;       /* TCP Congestion window */
+global cnx_tcp_sndbuf;     /* TCP Sending buffer size */
 global cnx_slow_start;     /* equal to 1 if slow start was used to increment cwnd */
 global cnx_cwnd_moderated; /* equal to 1 if cwnd was moderated */
 
@@ -159,6 +160,23 @@ probe kernel.function("tcp_enter_frto").return
 	display_event ($sk, "Enabling Forward RTO Recovery algorithm", max_sndbuf, 1);
 }
 
+/*
+    Sender buffer increase is done in tcp_new_space but it's an inline
+    function and we can't probe its returns state, so we probe instead
+    sk_stream_write_space which is called at the end of tcp_new_space
+ */
+probe kernel.function("sk_stream_write_space").return
+{
+	if (cnx_tcp_sndbuf[$sk] != $sk->sk_sndbuf) {
+		if ($sk->sk_sndbuf > cnx_tcp_sndbuf[$sk])
+			event = "Sender buffer increase";
+		else
+			event = "Sender buffer decrease";
+		max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+		display_event ($sk, event, max_sndbuf, 1, 0);
+		cnx_tcp_sndbuf[$sk] = $sk->sk_sndbuf;
+	}
+}
 
 probe kernel.function("tcp_moderate_cwnd")
 {
