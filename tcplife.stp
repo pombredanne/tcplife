@@ -227,6 +227,8 @@ probe kernel.function("tcp_fastretrans_alert").return
 		else
 			if (!($flag & 0x33))  /* FLAG_NOT_DUP */
 				event = "Duplicate ack received";
+			else
+				event = "Unknown event";
 
 		if (cnx_cwnd_moderated[$sk]) {
 			display_event ($sk, event, max_sndbuf, 0, 1);
@@ -234,10 +236,11 @@ probe kernel.function("tcp_fastretrans_alert").return
 			cnx_tcp_cwnd[$sk] = @cast($sk, "tcp_sock")->snd_cwnd;
 			/* We don't reinitialize cnx_cwnd_moderated here, it will
                            be done by the tcp_ack probe */
-			next;
-		} 
+		} else {
+			event = "Transition to Disorder state without congestion window moderation, that shouldn't happen !";
+			display_event ($sk, event, max_sndbuf, 1, 0);
+		}
 
-		display_event ($sk, event, max_sndbuf, 1, 1);
 		next;
 	}
 
