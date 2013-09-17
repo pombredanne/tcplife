@@ -120,6 +120,38 @@ function display_event(sk:long, event:string, max_sndbuf:long, show_info:long, u
 
 /*** Flow control related probes ***/
 
+/* 
+   The kernel enters sk_stream_wait_memory if it couldn't allocate memory for a new frame.
+   This can happen for two reasons:
+    - the sender buffer was full,
+    - there is not enough memory for the 
+   The kernel will sleep in this function waiting for some memory. 
+ */
+probe kernel.function("sk_stream_wait_memory")
+{
+	socket_flags = $sk->sk_socket->flags;
+	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+
+	if (socket_flags & 0x4) /* SOCK_NOSPACE */
+		event = "Application blocked on send (sender buffer full)"
+	else
+		event = "Application blocked on send (insufficient memory)"
+
+	display_event ($sk, event, max_sndbuf, 1, 0);
+}
+
+
+/*
+    If we returned from this function, it means that we have enough
+    memory to allocate a frame and send a packet at least.
+ */
+probe kernel.function("sk_stream_wait_memory").return
+{
+	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+	display_event ($sk, "Application unblocked on send", max_sndbuf, 1, 0);
+}
+
+
 /*
     Sender buffer increase is done in tcp_new_space but it's an inline
     function and we can't probe its returns state, so we probe instead
