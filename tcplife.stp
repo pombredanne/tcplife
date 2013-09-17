@@ -99,7 +99,7 @@ function display_connection_info(sk:long, max_sndbuf:long)
           The reason is that this sentence can't be used in a function except
           in recent versions of systemtap.
 */
-function display_event(sk:long, event:string, max_sndbuf:long, update_state:long)
+function display_event(sk:long, event:string, max_sndbuf:long, show_info:long, update_state:long)
 {
 	new_state = @cast(sk, "inet_connection_sock")->icsk_ca_state;
 	printf ("%s Event: %s", tcp_connection_info(sk), event)
@@ -108,7 +108,8 @@ function display_event(sk:long, event:string, max_sndbuf:long, update_state:long
 		cnx_tcp_state[sk] = new_state;
 	}
 	printf ("\n");
-	display_connection_info(sk, max_sndbuf);
+	if (show_info)
+		display_connection_info(sk, max_sndbuf);
 }
 
 
@@ -135,7 +136,7 @@ probe kernel.function("tcp_ack").return
 			event = "Congestion window decrease";
 		}
 
-		display_event ($sk, event, max_sndbuf, 0);
+		display_event ($sk, event, max_sndbuf, 1, 0);
 		cnx_tcp_cwnd[$sk] = @cast($sk, "tcp_sock")->snd_cwnd;
 		cnx_slow_start[$sk] = 0;
 	}
@@ -189,7 +190,7 @@ probe kernel.function("tcp_fastretrans_alert").return
 	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
 
 	if ($flag & 0x40) {  /* FLAG_ECE */
-		display_event ($sk, "Explicit Congestion Notification received", max_sndbuf, 1);
+		display_event ($sk, "Explicit Congestion Notification received", max_sndbuf, 1, 1);
 		next;
 	}
 
@@ -207,21 +208,21 @@ probe kernel.function("tcp_fastretrans_alert").return
 			cnx_tcp_cwnd[$sk] = @cast($sk, "tcp_sock")->snd_cwnd;
 		}
 
-		display_event ($sk, event, max_sndbuf, 1);
+		display_event ($sk, event, max_sndbuf, 1, 1);
 		next;
 	}
 
 	if (new_state == 3) {  /* -> Recovery state */
-		display_event ($sk, "Retransmission timeout", max_sndbuf, 1);
+		display_event ($sk, "Retransmission timeout", max_sndbuf, 1, 1);
 		next;
 	}
 
 	if (old_state == 3 && new_state == 0) { /* Recovery -> Open state */
-		display_event ($sk, "Full window acknowledged", max_sndbuf, 1);
+		display_event ($sk, "Full window acknowledged", max_sndbuf, 1, 1);
 		next;
 	}
 
-	display_event($sk, sprintf("Transition unknown (flag:0x%x)", $flag), max_sndbuf, 1);
+	display_event($sk, sprintf("Transition unknown (flag:0x%x)", $flag), max_sndbuf, 1, 1);
 }
 
 
