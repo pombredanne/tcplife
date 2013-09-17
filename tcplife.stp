@@ -120,6 +120,24 @@ function display_event(sk:long, event:string, max_sndbuf:long, show_info:long, u
 
 /*** Flow control related probes ***/
 
+probe kernel.function("tcp_write_xmit").return
+{
+	snd_nxt = @cast($sk, "tcp_sock")->snd_nxt;
+	snd_una = @cast($sk, "tcp_sock")->snd_una;
+	snd_wnd = @cast($sk, "tcp_sock")->snd_wnd;
+		
+	if (snd_nxt - snd_una + $mss_now > snd_wnd) {
+		max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+		display_event ($sk, "Send window full", max_sndbuf, 1, 0);
+	} else {
+		if ($return == 1) {
+			max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+			display_event ($sk, "Packet send delayed (Unknown reason)", max_sndbuf, 1, 0);
+		}
+	}
+}
+
+
 /* 
    The kernel enters sk_stream_wait_memory if it couldn't allocate memory for a new frame.
    This can happen for two reasons:
