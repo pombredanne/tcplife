@@ -267,6 +267,12 @@ probe kernel.function("tcp_fastretrans_alert").return
 
 	if (old_state == 0 && new_state == 1) { /* Open -> Disorder state */
 
+		/* Transition from Open to Disorder state happens if SACK or Duplicate ACK is received
+                   It happens if tcp_time_to_recover returns false (which should be the case if we're
+                   in the open state just before), in that case, tcp_try_to_open is called which will
+                     - calls tcp_try_keep_open which will set the TCP_CA_Disorder state 
+                     - calls tcp_moderate_cwnd which will reduce the cwnd to the amount of packets in flight */
+
 		if ($flag & 0x20)  /* FLAG_DATA_SACKED */
 			event = "Selective ack received";
 		else
