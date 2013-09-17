@@ -244,3 +244,9 @@ probe kernel.function("tcp_fastretrans_alert").return
 }
 
 
+probe kernel.function("tcp_enter_cwr").return
+{
+	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+	display_event ($sk, "Entering congestion window reduction mode", max_sndbuf, 1, 1);
+}
+
