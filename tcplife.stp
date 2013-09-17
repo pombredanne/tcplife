@@ -71,10 +71,17 @@ function display_connection_info(sk:long, max_sndbuf:long)
 	if (snd_ssthresh == 2147483647)
 		snd_ssthresh = 0
 
-	printf ("%s Status: sndbuf:%i/%i, cwnd:%i ssthresh:%i congestion_state:%s\n",
+	tcp_left_out = @cast(sk, "tcp_sock")->sacked_out + @cast(sk, "tcp_sock")->lost_out
+	packet_in_flights = @cast(sk, "tcp_sock")->packets_out - tcp_left_out + @cast(sk, "tcp_sock")->retrans_out;
+
+	printf ("%s Status: sndbuf:%i/%i/%i, snd_wnd:%i/%i cwnd:%i/%i ssthresh:%i congestion_state:%s\n",
 		tcp_connection_info(sk),
+		@cast(sk, "sock")->sk_wmem_queued,
 	        @cast(sk, "sock")->sk_sndbuf,
 		max_sndbuf,
+		@cast(sk, "tcp_sock")->snd_nxt - @cast(sk, "tcp_sock")->snd_una,
+		@cast(sk, "tcp_sock")->snd_wnd,
+		packet_in_flights,
 		@cast(sk, "tcp_sock")->snd_cwnd,
 		snd_ssthresh,
 		tcp_state(@cast(sk, "inet_connection_sock")->icsk_ca_state));
