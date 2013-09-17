@@ -189,6 +189,18 @@ probe kernel.function("sk_stream_write_space").return
 }
 
 
+probe kernel.function("tcp_transmit_skb").return
+{
+	/* A return code > 0 can mean packet dropped, congestion notification or removed by policy
+           (see NET_XMIT_XXXX code in include/linux/netdevice.h)
+           in all case this is interpreted as a local device congestion notification */
+	if ($return != 0) {
+		max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+		display_event ($sk, sprintf("Local device congestion", $return), max_sndbuf, 1, 1);
+	}
+}
+
+
 /*** Congestion control related probes ***/
 
 /* 
