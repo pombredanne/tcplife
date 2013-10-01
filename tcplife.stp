@@ -4,7 +4,7 @@
  *      This script is free software.  You can redistribute it and/or modify
  *      it under the terms of the GNU General Public License (GPL);
  *      either version 2, or (at your option) any later version.
- *      
+ *
  *      Version 0.1    yann@pleiades.fr.eu.org    2013-09-16
  *
  */
@@ -13,7 +13,7 @@
   Global variables
  **************************************************************************************/
 
-/* 
+/*
     These variables are used as an array to store the internal state of the each TCP
     connection followed.
     The "struct sock *sk" variable is used as a key of these associatives arrays
@@ -31,11 +31,11 @@ global cnx_send_head;
   Useful functions
  **************************************************************************************/
 
-/* 
+/*
     Given a struck sock, print the internal status of the tcp connection
     (congestion state, sending buffer size...)
 
-    Note: max_sndbuf must retrieved by the sender and passed as an argument, 
+    Note: max_sndbuf must retrieved by the sender and passed as an argument,
           using the follow line:
 	     max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
           The reason is that this sentence can't be used in a function except
@@ -64,12 +64,12 @@ function display_connection_info(sk:long, max_sndbuf:long)
 }
 
 
-/* 
+/*
     Given a struck sock, display an event and the current connection info.
     If update_state is set to 1, it will also print the state modification
     and save the new internal state.
 
-    Note: max_sndbuf must retrieved by the sender and passed as an argument, 
+    Note: max_sndbuf must retrieved by the sender and passed as an argument,
           using the follow line:
 	     max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
           The reason is that this sentence can't be used in a function except
@@ -88,7 +88,7 @@ function display_event(sk:long, event:string, max_sndbuf:long, show_info:long, u
 		display_connection_info(sk, max_sndbuf);
 }
 
-/* 
+/*
     These variables are used as an array to store the internal state of the each TCP
     connection followed.
 */
@@ -101,8 +101,8 @@ function tcp_state:string(state:long)
 	if (state == 4) return ("Loss");
 }
 
-/* 
-    Given a struck sock, return a string containing the source adresse/port and the 
+/*
+    Given a struck sock, return a string containing the source adresse/port and the
     destination adress port on the form SRC_IP:SRC_PORT <-> DST_IP:DST_PORT
 */
 function tcp_connection_info:string(sk:long)
@@ -153,12 +153,12 @@ function tcp_cwnd_test:long(sk:long)
 
 /*** Flow control related probes ***/
 
-/* 
-   This function is enter for each data packed that has to be sent 
-   It will try to send the packet but not necessarily succeed 
+/*
+   This function is enter for each data packed that has to be sent
+   It will try to send the packet but not necessarily succeed
    for various reason (congestion window full, sending window full...)
 
-   To check if a packet has been sent or not, we store the address of 
+   To check if a packet has been sent or not, we store the address of
    the next packet to be sent at the call of the function
  */
 probe kernel.function("tcp_write_xmit")
@@ -187,21 +187,21 @@ probe kernel.function("tcp_write_xmit").return
 		max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
 		display_event ($sk, "Congestion window full", max_sndbuf, 1, 0);
 		next;
-	} 
+	}
 
 	/* We can be here if the packet has not been set for other reasons
-           (nagle algorithm, tso deferring...) 
+           (nagle algorithm, tso deferring...)
            We are not interested in those other cases currently */
-     
+
 }
 
 
-/* 
+/*
    The kernel enters sk_stream_wait_memory if it couldn't allocate memory for a new frame.
    This can happen for two reasons:
     - the sender buffer was full,
-    - there is not enough memory for the 
-   The kernel will sleep in this function waiting for some memory. 
+    - there is not enough memory for the
+   The kernel will sleep in this function waiting for some memory.
  */
 probe kernel.function("sk_stream_wait_memory")
 {
@@ -261,7 +261,7 @@ probe kernel.function("tcp_transmit_skb").return
 
 /*** Congestion control related probes ***/
 
-/* 
+/*
    Congestion window is usually updated after each ack received, so we trace this
    function and report any modification of the congestion window.
 */
@@ -294,7 +294,7 @@ probe kernel.function("tcp_ack").return
 }
 
 
-/* 
+/*
    Most TCP connection congestion state modification occur in the
    tcp_fastretrans_alert function.
    So we intercept the return of this function and we guess what happened
@@ -328,7 +328,7 @@ probe kernel.function("tcp_fastretrans_alert").return
 		/* Transition from Open to Disorder state happens if SACK or Duplicate ACK is received
                    It happens if tcp_time_to_recover returns false (which should be the case if we're
                    in the open state just before), in that case, tcp_try_to_open is called which will
-                     - calls tcp_try_keep_open which will set the TCP_CA_Disorder state 
+                     - calls tcp_try_keep_open which will set the TCP_CA_Disorder state
                      - calls tcp_moderate_cwnd which will reduce the cwnd to the amount of packets in flight */
 
 		if ($flag & 0x20)  /* FLAG_DATA_SACKED */
@@ -367,10 +367,10 @@ probe kernel.function("tcp_fastretrans_alert").return
 }
 
 
-/* 
+/*
    We keep track of slow start calls to know if it was used to increase the
    congestion window
-*/  
+*/
 probe kernel.function("tcp_slow_start").return
 {
 	cnx_slow_start[$tp] = 1;
