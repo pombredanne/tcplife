@@ -24,6 +24,7 @@ global cnx_tcp_cwnd;       /* TCP Congestion window */
 global cnx_tcp_sndbuf;     /* TCP Sending buffer size */
 global cnx_slow_start;     /* equal to 1 if slow start was used to increment cwnd */
 global cnx_cwnd_moderated; /* equal to 1 if cwnd was moderated */
+global cnx_send_head;
 
 
 /***************************************************************************************
@@ -114,27 +115,84 @@ function tcp_connection_info:string(sk:long)
 }
 
 
+/* This function reproduce the behavior of the real tcp_snd_wnd_test kernel function
+   we have to do this as this function is inlined and we can't intercept the return
+   values of inline functions */
+function tcp_snd_wnd_test:long(sk:long, mss_now:long)
+{
+	skb = cnx_send_head[sk];
+	cb = @cast(skb, "sk_buff")->cb;
+	if (@cast(skb, "sk_buff")->len > mss_now) {
+		end_seq = @cast(cb, "tcp_skb_cb")->end_seq
+	} else {
+		end_seq = @cast(cb, "tcp_skb_cb")->seq + mss_now;
+	}
+
+	snd_una = @cast(sk, "tcp_sock")->snd_una;
+	snd_wnd = @cast(sk, "tcp_sock")->snd_wnd;
+	tcp_wnd_end = snd_una + snd_wnd;
+
+	return (end_seq < tcp_wnd_end);
+}
+
+/* This function reproduce the behavior of the real tcp_cwnd_test kernel function
+   we have to do this as this function is inlined and we can't intercept the return
+   values of inline functions */
+function tcp_cwnd_test:long(sk:long)
+{
+	tcp_left_out = @cast(sk, "tcp_sock")->sacked_out + @cast(sk, "tcp_sock")->lost_out;
+	in_flight = @cast(sk, "tcp_sock")->packets_out - tcp_left_out + @cast(sk, "tcp_sock")->retrans_out;
+	cwnd = @cast(sk, "tcp_sock")->snd_cwnd;
+	return (in_flight < cwnd);
+}
+
+
 /***************************************************************************************
   Probe functions
  **************************************************************************************/
 
 /*** Flow control related probes ***/
 
+/* 
+   This function is enter for each data packed that has to be sent 
+   It will try to send the packet but not necessarily succeed 
+   for various reason (congestion window full, sending window full...)
+
+   To check if a packet has been sent or not, we store the address of 
+   the next packet to be sent at the call of the function
+ */
+probe kernel.function("tcp_write_xmit")
+{
+	cnx_send_head[$sk] = $sk->sk_send_head;
+}
+
+
 probe kernel.function("tcp_write_xmit").return
 {
-	snd_nxt = @cast($sk, "tcp_sock")->snd_nxt;
-	snd_una = @cast($sk, "tcp_sock")->snd_una;
-	snd_wnd = @cast($sk, "tcp_sock")->snd_wnd;
-		
-	if (snd_nxt - snd_una + $mss_now > snd_wnd) {
+	if (cnx_send_head[$sk] != @cast($sk, "sock")->sk_send_head) {
+		/* The head of the packet queue has changed, it means
+                   a packet has been sent */
+		next;
+	}
+
+	/* Oups ! Packet not sent ! We will try to find the reason */
+
+	if (!tcp_snd_wnd_test($sk, $mss_now)) {
 		max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
 		display_event ($sk, "Send window full", max_sndbuf, 1, 0);
-	} else {
-		if ($return == 1) {
-			max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
-			display_event ($sk, "Packet send delayed (Unknown reason)", max_sndbuf, 1, 0);
-		}
+		next;
 	}
+
+	if (!tcp_cwnd_test($sk)) {
+		max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+		display_event ($sk, "Congestion window full", max_sndbuf, 1, 0);
+		next;
+	} 
+
+	/* We can be here if the packet has not been set for other reasons
+           (nagle algorithm, tso deferring...) 
+           We are not interested in those other cases currently */
+     
 }
 
 
