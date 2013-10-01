@@ -31,32 +31,6 @@ global cnx_cwnd_moderated; /* equal to 1 if cwnd was moderated */
  **************************************************************************************/
 
 /* 
-    These variables are used as an array to store the internal state of the each TCP
-    connection followed.
-*/
-function tcp_state:string(state:long)
-{
-	if (state == 0) return ("Open");
-	if (state == 1) return ("Disorder");
-	if (state == 2) return ("CWR");
-	if (state == 3) return ("Recovery");
-	if (state == 4) return ("Loss");
-}
-
-/* 
-    Given a struck sock, return a string containing the source adresse/port and the 
-    destination adress port on the form SRC_IP:SRC_PORT <-> DST_IP:DST_PORT
-*/
-function tcp_connection_info:string(sk:long)
-{
-	return (sprintf("%s:%d <-> %s:%d",
-			ip_ntop(htonl(tcpmib_local_addr(sk))),
-			tcpmib_local_port(sk),
-			ip_ntop(htonl(tcpmib_remote_addr(sk))),
-			tcpmib_remote_port(sk)));
-}
-
-/* 
     Given a struck sock, print the internal status of the tcp connection
     (congestion state, sending buffer size...)
 
@@ -111,6 +85,32 @@ function display_event(sk:long, event:string, max_sndbuf:long, show_info:long, u
 	printf ("\n");
 	if (show_info)
 		display_connection_info(sk, max_sndbuf);
+}
+
+/* 
+    These variables are used as an array to store the internal state of the each TCP
+    connection followed.
+*/
+function tcp_state:string(state:long)
+{
+	if (state == 0) return ("Open");
+	if (state == 1) return ("Disorder");
+	if (state == 2) return ("CWR");
+	if (state == 3) return ("Recovery");
+	if (state == 4) return ("Loss");
+}
+
+/* 
+    Given a struck sock, return a string containing the source adresse/port and the 
+    destination adress port on the form SRC_IP:SRC_PORT <-> DST_IP:DST_PORT
+*/
+function tcp_connection_info:string(sk:long)
+{
+	return (sprintf("%s:%d <-> %s:%d",
+			ip_ntop(htonl(tcpmib_local_addr(sk))),
+			tcpmib_local_port(sk),
+			ip_ntop(htonl(tcpmib_remote_addr(sk))),
+			tcpmib_remote_port(sk)));
 }
 
 
