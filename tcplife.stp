@@ -407,6 +407,20 @@ probe kernel.function("tcp_enter_frto").return
 	display_event ($sk, "Retransmission timeout, enabling Forward RTO Recovery algorithm", max_sndbuf, 1, 1);
 }
 
+probe kernel.function("tcp_enter_loss").return
+{
+	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
+	if ($how == 0) {
+		/* Happen when called from tcp_transmit_timer */
+		event = "Retransmission timeout";
+	} else {
+		/* Happen when called from tcp_check_sack_reneging which is called from
+			 tcp_fastretrans_alert */
+		event = "Sack reneging";
+	}
+
+	display_event ($sk, event, max_sndbuf, 1, 1);
+}
 
 probe kernel.function("tcp_moderate_cwnd")
 {
