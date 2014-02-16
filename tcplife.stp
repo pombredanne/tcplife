@@ -20,6 +20,7 @@
  */
 
 global cnx_tcp_state;      /* TCP Congestion state (Open, Disorder, CWR, Recovery, Loss) */
+global cnx_cwr_occured;    /* TCP connection entered CWR mode */
 global cnx_tcp_cwnd;       /* TCP Congestion window */
 global cnx_tcp_sndbuf;     /* TCP Sending buffer size */
 global cnx_slow_start;     /* equal to 1 if slow start was used to increment cwnd */
@@ -262,7 +263,8 @@ probe kernel.function("tcp_transmit_skb").return
 	/* A return code > 0 can mean packet dropped, congestion notification or removed by policy
            (see NET_XMIT_XXXX code in include/linux/netdevice.h)
            in all case this is interpreted as a local device congestion notification */
-	if ($return > 0) {
+	if (cnx_cwr_occured[$sk] == 1) {
+		cnx_cwr_occured[$sk] = 0;
 		max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
 		display_event ($sk, "Local device congestion", max_sndbuf, 1, 1);
 	}
@@ -363,8 +365,13 @@ probe kernel.function("tcp_fastretrans_alert").return
 		next;
 	}
 
-	if ($flag & 0x40) {  /* FLAG_ECE */
-		display_event ($sk, "Explicit Congestion Notification received", max_sndbuf, 1, 1);
+	if (new_state == 2) {  /* -> CWR state */
+		if (cnx_cwr_occured[$sk] == 1 && $flag & 0x40) /* FLAG_ECE */
+			display_event ($sk, "Explicition Congestion Notification (ECN) received", max_sndbuf, 1, 1);
+		else
+			display_event ($sk, "Enterint CSW state without ECN flag or without tcp_enter_cwr called, that shouldn't happen !", max_sndbuf, 1, 1);
+
+		cnx_cwr_occured[$sk] = 0;
 		next;
 	}
 
@@ -396,8 +403,19 @@ probe kernel.function("tcp_slow_start").return
 
 probe kernel.function("tcp_enter_cwr").return
 {
+	if (cnx_tcp_state[$sk] == 2 || @cast($sk, "inet_connection_sock")->icsk_ca_state != 2) {
+		next;
+	}
+
+	if ($set_ssthresh == 0) {
+		/* tcp_enter_cwr is called with set_ssthresh=0 only from tcp_ratehalving_spur_to_response */
+		display_event ($sk, "F-RTO Rate Halving spurious reponse", max_sndbuf, 1, 1);
+	} else {
+		cnx_cwr_occured[$sk] = 1;
+	}
+
 	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
-	display_event ($sk, "Entering congestion window reduction mode", max_sndbuf, 1, 1);
+	display_event ($sk, "Explicit Congestion Notification received", max_sndbuf, 1, 1);
 }
 
 	
