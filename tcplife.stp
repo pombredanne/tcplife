@@ -320,7 +320,7 @@ probe kernel.function("tcp_ack").return
 probe kernel.function("tcp_fastretrans_alert").return
 {
 	new_state = @cast($sk, "inet_connection_sock")->icsk_ca_state;
-	old_state = cnx_tcp_state[$sk]
+	old_state = cnx_tcp_state[$sk];
 
 	if (new_state == old_state) {
 		next;
