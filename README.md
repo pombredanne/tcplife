@@ -21,10 +21,13 @@ with kernel 2.6.32.
 
 ## Usage
 
-No option yet, to start to monitor all tcp connection, simply launch
+No option yet, to start to monitor all tcp connections, simply launch
 the script with either:
+
     tcplife.stp
+
 or 
+
     stap tcplife.stp
 
 ## Output 
@@ -38,7 +41,7 @@ The event part is just a descriptive line, whereas the status part contains
 precise numerical information:
 
 * `sndbuf`: information about the TCP socket buffer size in the form of the
-            triplet buffer usage / buffer size / maximum buffer size, where:
+             `triplet buffer usage / buffer size / maximum buffer size`, where:
 
   * _buffer usage_ is the number of bytes currently used by packets waiting
                    to be sent.
@@ -49,13 +52,11 @@ precise numerical information:
 
   All values are in bytes and minmum, default and maximum values can be tuned
   using the `/proc/sys/net/ipv4/tcp_wmem` kernel parameter.
-  More information can be found in the [ip-sysctl.txt][1] in the kernel
+  More information can be found in the [ip-sysctl.txt](https://git.kernel.org/cgit/linux/kernel/git/stable/linux-stable.git/tree/Documentation/networking/ip-sysctl.txt?id=refs/tags/v2.6.32.61#n452
   documentation.
 
-[1] https://git.kernel.org/cgit/linux/kernel/git/stable/linux-stable.git/tree/Documentation/networking/ip-sysctl.txt?id=refs/tags/v2.6.32.61#n452
-
 * `snd_wnd`: the sender window in the following form
-             number of bytes sent and not acknowledged / number of bytes allowed
+             `number of bytes sent and not acknowledged / number of bytes allowed`
 
    This give information about the number of data that the receiver allowed us to send
    in order to let him the time to process the data.
@@ -64,7 +65,7 @@ precise numerical information:
    window information sent by the receiver in each acknowledgement TCP packet.
 
 * `cwnd`: information about the congestion window in the following form
-          number of packets in flight / maximum packets allowed
+          `number of packets in flight / maximum packets allowed`
 
    This give information about how much we can send through the network without 
    overflowing it, according to the TCP congestion algorithm used.
@@ -87,9 +88,7 @@ precise numerical information:
    * _Recovery_: congestion window was reduced. 
    * _Loss_    : some packets were probably lost. 
 
-   More information can be found in the linux [tcp_input.c source file][2].
-
-[2] https://git.kernel.org/cgit/linux/kernel/git/stable/linux-stable.git/tree/net/ipv4/tcp_input.c?id=refs/tags/v2.6.32.61#n2321
+   More information can be found in the linux [tcp_input.c source file](https://git.kernel.org/cgit/linux/kernel/git/stable/linux-stable.git/tree/net/ipv4/tcp_input.c?id=refs/tags/v2.6.32.61#n2321)
 
 
 Example of output:
@@ -110,19 +109,17 @@ show.
 
    These functions will first try to allocate the memory required to store
    the data and will block if that's not possible, which happens in two cases:
-
-  * the maximum memory allowed for tcp has been reached (*Event "TCP Memory full"*) 
-  * the TCP socket send buffer is full (*Event "Send buffer full"*)
+   * the maximum memory allowed for tcp has been reached (**Event "TCP Memory full"**) 
+   * the TCP socket send buffer is full (**Event "Send buffer full"**)
    
-2. If that's ok, the data are then passed to the  tcp_write_xmit`function.
+2. If that's ok, the data are then passed to the `tcp_write_xmit` function.
 
    This one is supposed to sent the packet to the network, but it will not do
    it immediately if:
-  
-    * the congestion window is full (*Event: "Congestion window full"*)
-    * the sending window is full (*Event "Send window full"*),
-    * other reasons not traced by this script because they are part of 
-      the normal flow (Nagle, TSO).
+   * the congestion window is full (**Event: "Congestion window full"**)
+   * the sending window is full (**Event "Send window full"**),
+   * other reasons not traced by this script because they are part of 
+     the normal flow (Nagle, TSO).
 
    This function will not block in those cases and will simply return. 
    The packet not sent will continue to take space in the sender buffer
@@ -136,39 +133,31 @@ show.
 
    At this point, we only detect congestion event raised by the lower layer
    without knowing if it's the netword card that is overloaded or if is the
-   traffic layer which drops or slows packets because of policy (*Event
-   "Local device or traffic congestion"*).
+   traffic layer which drops or slows packets because of policy (**Event
+   "Local device or traffic congestion"**).
    
 4. Later, when the sender receives an acknowlegdement from the receiver, it can do
    several things related to the packet sending:
-
    * if the acknowledgement allowed to free some space in the send buffer, the
      kernel may tries to check if send buffer can be increased through the function
-     `tcp_check_space` (*Event "Send buffer increase"*).
-
+     `tcp_check_space` (**Event "Send buffer increase"**).
    * the information received in the acknowledgement packet are used to trigger 
      various congestion state change through the `tcp_fastretrans_alert` function:
-
       - a packet with the ECE flag will move the TCP connection into CWR mode
-        (*Event "Explicit Congestion Notification received"*) and
-        (*Event "Entering congestion window reduction mode"*).
-
+        (**Events "Explicit Congestion Notification received" and "Entering 
+        congestion window reduction mode"**).
       - a packet containing SACK or a a duplicate ack will trigger the Recovery
-        mode (*Event "Selective ack received" or "Duplicate ack received"*).
-
+        mode (**Event "Selective ack received" or "Duplicate ack received"**).
       - when the receiver ackwnlowedged the full window of missing packets during
         a congestion event, the TCP stack will go back to normal mode
-        (*Event "Full window acknowledged"*).
+        (**Event "Full window acknowledged"**).
 
 5. If the sender never acknowledges our packet, a timer will trigger in order to
    retransmit the packet. This can lead to two importante events:
-
    * either the TCP stack directly enter into Loss mode
-     (*Event "Retransmission timeout"*)
-  
+     (**Event "Retransmission timeout"**)
    * or it will try first to enable the F-RTO algorithm
-     (*Event "Retransmission timeout, enabling Forward RTO Recovery algorithm*").
-    
+     (**Event "Retransmission timeout, enabling Forward RTO Recovery algorithm"**).
     
 ### Receive path
 
