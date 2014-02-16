@@ -292,7 +292,7 @@ probe kernel.function("tcp_ack").return
 		} else {
 			if (cnx_cwnd_moderated[$sk]) {
 				/* cwnd moderation that happened during tcp_ack are called
-                                   from tcp_fastretrans_alert and handled in its probe */
+				   from tcp_fastretrans_alert and handled in its probe */
 				cnx_cwnd_moderated[$sk] = 0;
 				next;
 			} else {
