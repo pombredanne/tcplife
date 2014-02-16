@@ -25,6 +25,8 @@ global cnx_tcp_sndbuf;     /* TCP Sending buffer size */
 global cnx_slow_start;     /* equal to 1 if slow start was used to increment cwnd */
 global cnx_cwnd_moderated; /* equal to 1 if cwnd was moderated */
 global cnx_send_head;
+global cnx_wait_memory;   /* equal to 1 if sender is waiting for memory because send buffer is full
+                             0 otherwise (TCP memory full) */
 
 
 /***************************************************************************************
@@ -208,10 +210,13 @@ probe kernel.function("sk_stream_wait_memory")
 	socket_flags = $sk->sk_socket->flags;
 	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
 
-	if (socket_flags & 0x4) /* SOCK_NOSPACE */
-		event = "Application blocked on send (sender buffer full)"
-	else
-		event = "Application blocked on send (insufficient memory)"
+	if (socket_flags & 0x4) { /* SOCK_NOSPACE */
+		event = "Send buffer full"
+		cnx_wait_memory[$sk] = 1;
+	} else {
+		event = "TCP memory full"
+		cnx_wait_memory[$sk] = 0;
+  }
 
 	display_event ($sk, event, max_sndbuf, 1, 0);
 }
@@ -223,8 +228,13 @@ probe kernel.function("sk_stream_wait_memory")
  */
 probe kernel.function("sk_stream_wait_memory").return
 {
+	if (cnx_wait_memory[$sk] == 1)
+		event = "Send buffer space available";
+  else
+		event = "TCP Memory space available";
+
 	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
-	display_event ($sk, "Application unblocked on send", max_sndbuf, 1, 0);
+	display_event ($sk, event, max_sndbuf, 1, 0);
 }
 
 
