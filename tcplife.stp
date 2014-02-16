@@ -404,7 +404,7 @@ probe kernel.function("tcp_enter_cwr").return
 probe kernel.function("tcp_enter_frto").return
 {
 	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
-	display_event ($sk, "Enabling Forward RTO Recovery algorithm", max_sndbuf, 1, 1);
+	display_event ($sk, "Retransmission timeout, enabling Forward RTO Recovery algorithm", max_sndbuf, 1, 1);
 }
 
 
