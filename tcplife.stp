@@ -328,8 +328,9 @@ probe kernel.function("tcp_fastretrans_alert").return
 
 	max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
 
-	if ($flag & 0x40) {  /* FLAG_ECE */
-		display_event ($sk, "Explicit Congestion Notification received", max_sndbuf, 1, 1);
+
+	if (new_state == 0) { /* Recovery -> Open state */
+		display_event ($sk, "Full window acknowledged", max_sndbuf, 1, 1);
 		next;
 	}
 
@@ -342,16 +343,15 @@ probe kernel.function("tcp_fastretrans_alert").return
                      - calls tcp_moderate_cwnd which will reduce the cwnd to the amount of packets in flight */
 
 		if ($flag & 0x20)  /* FLAG_DATA_SACKED */
-			event = "Selective ack received";
+			event = "Selective ack received, congestion window moderated";
 		else
 			if (!($flag & 0x33))  /* FLAG_NOT_DUP */
-				event = "Duplicate ack received";
+				event = "Duplicate ack received, congestion window moderated";
 			else
 				event = "Unknown event";
 
 		if (cnx_cwnd_moderated[$sk]) {
-			display_event ($sk, event, max_sndbuf, 0, 1);
-			display_event ($sk, "Congestion window moderated", max_sndbuf, 1, 0);
+			display_event ($sk, event, max_sndbuf, 1, 1);
 			cnx_tcp_cwnd[$sk] = @cast($sk, "tcp_sock")->snd_cwnd;
 			/* We don't reinitialize cnx_cwnd_moderated here, it will
                            be done by the tcp_ack probe */
@@ -363,15 +363,22 @@ probe kernel.function("tcp_fastretrans_alert").return
 		next;
 	}
 
+	if ($flag & 0x40) {  /* FLAG_ECE */
+		display_event ($sk, "Explicit Congestion Notification received", max_sndbuf, 1, 1);
+		next;
+	}
+
 	if (new_state == 3) {  /* -> Recovery state */
 		display_event ($sk, "Retransmission timeout", max_sndbuf, 1, 1);
 		next;
 	}
 
-	if (old_state == 3 && new_state == 0) { /* Recovery -> Open state */
-		display_event ($sk, "Full window acknowledged", max_sndbuf, 1, 1);
+	if (new_state == 4) { /* -> Loss state */
+		/* The transition to the loss state is already handled by the tcp_enter_loss
+       probe */
 		next;
 	}
+
 
 	display_event($sk, sprintf("Transition unknown (flag:0x%x)", $flag), max_sndbuf, 1, 1);
 }
