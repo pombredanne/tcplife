@@ -239,17 +239,17 @@ probe kernel.function("sk_stream_wait_memory").return
 
 
 /*
-    Sender buffer increase is done in tcp_new_space but it's an inline
+    Send buffer increase is done in tcp_new_space but it's an inline
     function and we can't probe its returns state, so we probe instead
     sk_stream_write_space which is called at the end of tcp_new_space
  */
 probe kernel.function("sk_stream_write_space").return
 {
 	if (cnx_tcp_sndbuf[$sk] != $sk->sk_sndbuf) {
-		if ($sk->sk_sndbuf > cnx_tcp_sndbuf[$sk])
-			event = "Sender buffer increase";
+		if ($sk->sk_sndbuf < cnx_tcp_sndbuf[$sk])
+			event = "Send buffer decrease";
 		else
-			event = "Sender buffer decrease";
+			event = "Send buffer increase"; /* I don't think that happens */
 		max_sndbuf = @var("sysctl_tcp_wmem@net/ipv4/tcp.c")[2];
 		display_event ($sk, event, max_sndbuf, 1, 0);
 		cnx_tcp_sndbuf[$sk] = $sk->sk_sndbuf;
